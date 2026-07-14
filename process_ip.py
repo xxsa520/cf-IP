@@ -9,6 +9,7 @@ URL_SG = "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/
 OUT_DIR = Path("output")
 OUT_CF = OUT_DIR / "Cfxyz_processed.txt"
 OUT_SG = OUT_DIR / "SG_processed.txt"
+OUT_MERGE = OUT_DIR / "all_ip.txt"  # 合并后的总文件
 
 # IP缓存，减少重复请求
 ip_country_cache = {}
@@ -58,6 +59,20 @@ def process_sg(content: str) -> str:
     """处理SG.txt：sg 【新加坡】 SG → 新加坡"""
     return content.replace("sg 【新加坡】 SG", "新加坡")
 
+def merge_file():
+    """合并两个处理后的文件到 all_ip.txt"""
+    # 读取两个文件
+    with open(OUT_CF, "r", encoding="utf-8") as f:
+        cf_data = f.read()
+    with open(OUT_SG, "r", encoding="utf-8") as f:
+        sg_data = f.read()
+
+    # 拼接，中间空一行分隔两类节点
+    merge_content = cf_data + "\n\n" + sg_data
+    with open(OUT_MERGE, "w", encoding="utf-8") as f:
+        f.write(merge_content)
+    print(f"合并完成，总文件: {OUT_MERGE}")
+
 def main():
     # 创建输出文件夹
     OUT_DIR.mkdir(exist_ok=True)
@@ -77,6 +92,9 @@ def main():
     with open(OUT_SG, "w", encoding="utf-8") as f:
         f.write(sg_processed)
     print(f"SG处理完成，输出: {OUT_SG}")
+
+    # 新增：合并两个文件
+    merge_file()
 
 if __name__ == "__main__":
     main()
