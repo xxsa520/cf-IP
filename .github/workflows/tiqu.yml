@@ -1,0 +1,42 @@
+name: Hourly IP Text Process
+# 触发：每小时整点 + 手动触发
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  process_task:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置Python3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 执行IP处理脚本
+        run: python process_ip.py
+
+      - name: 配置Git提交信息
+        run: |
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
+
+      - name: 提交并推送更新文件
+        run: |
+          git add output/
+          # 有变更才提交
+          if git diff --cached --quiet; then
+            echo "无文件更新，跳过提交"
+          else
+            git commit -m "自动更新IP文本 $(date '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
