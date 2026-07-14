@@ -54,24 +54,40 @@ def extract_isp_from_key(key_str):
 
 def clean_unwanted_lines(content: str) -> str:
     """
-    全局清洗：剔除文本中不包含IP的纯标签行(如 unicom, telecom, mobile, CT, AllAvg)
+    全局清洗：剔除纯标签行(如 unicom, telecom, CT, AllAvg)
+    但保留包含域名或其他有效节点信息的行
     """
     lines = content.split('\n')
     cleaned_lines = []
     for line in lines:
+        # 1. 包含IP的行直接保留
         if ip_pattern.search(line):
             cleaned_lines.append(line)
             continue
             
-        stripped_line = line.strip().replace(':', '').replace('#', '').replace('-', '').replace('_', '').strip()
+        stripped_line = line.strip().replace(':', '').replace('#', '').replace('-', '').replace('_', '').replace(' ', '')
         if not stripped_line:
+            cleaned_lines.append(line) # 保留空行维持格式
+            continue
+            
+        # 2. 检查是否含有运营商标签
+        isp_type = extract_isp_from_key(stripped_line)
+        if isp_type or 'ALLAVG' in stripped_line.upper() or 'AVG' in stripped_line.upper():
+            # 进一步判断：去掉所有可能的运营商标识后，是否还有其他字符
+            test_str = stripped_line.upper()
+            test_str = test_str.replace('TELECOM', '').replace('UNICOM', '').replace('MOBILE', '')
+            test_str = test_str.replace('CT', '').replace('CU', '').replace('CM', '')
+            test_str = test_str.replace('电信', '').replace('联通', '').replace('移动', '')
+            test_str = test_str.replace('SG', '').replace('ALLAVG', '').replace('AVG', '')
+            
+            # 如果去掉这些标识后什么都没剩下，说明是纯标签行(如 "mobile", "CT: ", "SG移动")，丢弃
+            if not test_str:
+                continue
+            # 如果还有剩余(如 "www5hcom443" )，说明是有效节点，保留
             cleaned_lines.append(line)
             continue
             
-        isp_type = extract_isp_from_key(stripped_line)
-        if isp_type or 'ALLAVG' in stripped_line.upper() or 'AVG' in stripped_line.upper():
-            continue
-            
+        # 3. 其他普通行直接保留
         cleaned_lines.append(line)
         
     return '\n'.join(cleaned_lines)
@@ -81,7 +97,6 @@ def process_vps789(content: str) -> dict:
     健壮解析 VPS789 接口数据。
     """
     classified = {'mobile': [], 'telecom': [], 'unicom': []}
-    # 您的示例中要求格式为 "#移动"，如果想改为 "#SG移动" 可在此处修改
     isp_name_map = {'mobile': '移动', 'telecom': '电信', 'unicom': '联通'}
     
     def add_ip(ip, isp_type):
@@ -152,7 +167,6 @@ def process_vps789(content: str) -> dict:
     return classified
 
 def save_classified_vps789(classified_data: dict):
-    # 保存单独的分类文件
     with open(OUT_SG_MOBILE, 'w', encoding='utf-8') as f:
         f.write('\n'.join(classified_data['mobile']))
     with open(OUT_SG_TELECOM, 'w', encoding='utf-8') as f:
@@ -213,7 +227,6 @@ def main():
         vps789_classified = process_vps789(vps789_raw)
         save_classified_vps789(vps789_classified)
         
-        # 【修改点】以纯文本格式保存合并后的VPS789数据，一行一个IP
         with open(OUT_VPS789, "w", encoding="utf-8") as f:
             all_vps789_ips = vps789_classified['mobile'] + vps789_classified['telecom'] + vps789_classified['unicom']
             f.write("\n".join(all_vps789_ips))
