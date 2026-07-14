@@ -48,9 +48,9 @@ def process_vps789(content: str) -> dict:
     
     # 运营商名称映射辅助
     isp_name_map = {
-        'mobile': 'SG移动',
-        'telecom': 'SG电信',
-        'unicom': 'SG联通'
+        'mobile': '移动',
+        'telecom': '电信',
+        'unicom': '联通'
     }
     
     def extract_isp_from_key(key_str):
