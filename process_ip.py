@@ -1,23 +1,23 @@
 import requests
 import os
 import json
+import re
 from pathlib import Path
 
 # 三个源链接，顺序：yongbusi 第一
 URL_YONGBUSI = "https://raw.githubusercontent.com/xxsa520/cf-IP/refs/heads/main/yongbusi.txt"
-URL_VPS789 = "https://vps789.com/openApi/cfIpApi"  # 新增的VPS789接口
 URL_CFXYZ = "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/Cfxyz.txt"
 URL_SG = "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/SG.txt"
-
+URL_VPS789 = "https://vps789.com/openApi/cfIpApi"  # 新增的VPS789接口
 
 OUT_DIR = Path("output")
 OUT_YONGBUSI = OUT_DIR / "Yongbusi_processed.txt"
-OUT_VPS789 = OUT_DIR / "VPS789_processed.txt"  # 新增的VPS789处理文件
 OUT_CF = OUT_DIR / "Cfxyz_processed.txt"
 OUT_SG = OUT_DIR / "SG_processed.txt"
+OUT_VPS789 = OUT_DIR / "VPS789_processed.txt"
 OUT_MERGE = OUT_DIR / "all_ip.txt"
 
-# 新增：VPS789分类输出文件
+# 分类输出文件
 OUT_SG_MOBILE = OUT_DIR / "SG_mobile.txt"
 OUT_SG_TELECOM = OUT_DIR / "SG_telecom.txt"
 OUT_SG_UNICOM = OUT_DIR / "SG_unicom.txt"
@@ -28,95 +28,122 @@ def download_raw(url: str) -> str:
     resp.raise_for_status()
     return resp.text
 
-# 通用替换：所有【测速 Nodes】直接替换为 新加坡，无需查IP
 def replace_all_speed_tag(content: str) -> str:
     return content.replace("【测速 Nodes】", "新加坡")
 
-# SG文件专属处理
 def process_sg(content: str) -> str:
-    # 先替换固定字符串
     content = content.replace("sg 【新加坡】 SG", "新加坡")
-    # 再统一替换测速标记
     content = replace_all_speed_tag(content)
     return content
 
-# 新增：处理VPS789接口数据
 def process_vps789(content: str) -> dict:
     """
-    处理VPS789接口返回的数据，按运营商分类
-    返回包含三个分类列表的字典
+    健壮解析 VPS789 接口数据。
+    支持JSON或纯文本，通过识别 CT/CU/CM/电信/联通/移动 等关键字，
+    结合IP正则提取，准确分类，避免将标签(如"CT")误判为IP。
     """
-    try:
-        data = json.loads(content)
-        ip_list = data.get('data', []) if isinstance(data, dict) else data
-        
-        classified = {
-            'mobile': [],    # SG移动
-            'telecom': [],   # SG电信
-            'unicom': []     # SG联通
-        }
-        
-        for item in ip_list:
-            # 假设API返回格式为：{"ip": "1.1.1.1", "isp": "移动"} 或直接是IP字符串
-            if isinstance(item, dict):
-                ip = item.get('ip', '')
-                isp = item.get('isp', '').lower()
-            else:
-                ip = str(item)
-                isp = '未知'
-            
-            # 根据ISP信息分类
-            if '移动' in isp or 'mobile' in isp:
-                classified['mobile'].append(f"{ip}:443#SG移动")
-            elif '电信' in isp or 'telecom' in isp:
-                classified['telecom'].append(f"{ip}:443#SG电信")
-            elif '联通' in isp or 'unicom' in isp:
-                classified['unicom'].append(f"{ip}:443#SG联通")
-            else:
-                # 未知运营商，默认归为移动（可根据需求调整）
-                classified['mobile'].append(f"{ip}:443#SG移动")
-        
-        return classified
+    classified = {'mobile': [], 'telecom': [], 'unicom': []}
+    # 严格的IPv4正则表达式，只提取类似 1.1.1.1 的字符串，防止把 CT 当成IP
+    ip_pattern = re.compile(r'\b((?:\d{1,3}\.){3}\d{1,3})\b')
     
-    except json.JSONDecodeError:
-        # 如果不是JSON格式，尝试按行处理
-        lines = content.strip().split('\n')
-        classified = {
-            'mobile': [],
-            'telecom': [],
-            'unicom': []
-        }
+    # 运营商名称映射辅助
+    isp_name_map = {
+        'mobile': 'SG移动',
+        'telecom': 'SG电信',
+        'unicom': 'SG联通'
+    }
+    
+    def extract_isp_from_key(key_str):
+        key_str = str(key_str).upper()
+        # 排除 ALLAVG，防止平均延迟的IP被误分类
+        if 'ALLAVG' in key_str or 'AVG' in key_str:
+            return None
+        if 'CT' in key_str or 'TELECOM' in key_str or '电信' in key_str:
+            return 'telecom'
+        elif 'CU' in key_str or 'UNICOM' in key_str or '联通' in key_str:
+            return 'unicom'
+        elif 'CM' in key_str or 'MOBILE' in key_str or '移动' in key_str:
+            return 'mobile'
+        return None
         
+    def add_ip(ip, isp_type):
+        if ip and isp_type:
+            classified[isp_type].append(f"{ip}:443#{isp_name_map[isp_type]}")
+
+    try:
+        # 尝试按 JSON 解析
+        data = json.loads(content)
+        
+        def parse_json(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    isp_type = extract_isp_from_key(k)
+                    # 如果当前键是运营商类型(如CT/CU/CM)，提取值中的IP
+                    if isp_type:
+                        ips = ip_pattern.findall(str(v))
+                        for ip in ips:
+                            add_ip(ip, isp_type)
+                    else:
+                        # 键不是运营商标识，继续递归遍历值
+                        parse_json(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    parse_json(item)
+            elif isinstance(obj, str):
+                # 如果字符串本身带有运营商标识，提取IP
+                isp_type = extract_isp_from_key(obj)
+                if isp_type:
+                    ips = ip_pattern.findall(obj)
+                    for ip in ips:
+                        add_ip(ip, isp_type)
+                        
+        parse_json(data)
+        
+    except json.JSONDecodeError:
+        # 如果不是JSON格式，按纯文本逐行处理
+        lines = content.split('\n')
+        current_isp = None
         for line in lines:
             line = line.strip()
-            if line and not line.startswith('#'):
-                # 简单的IP格式判断（实际应用中可能需要更复杂的逻辑）
-                if '.' in line and ':' not in line:
-                    ip = line
-                    # 这里需要根据IP段判断运营商，简化处理：全部归为移动
-                    # 实际应用中应该使用IP地理位置查询服务
-                    classified['mobile'].append(f"{ip}:443#SG移动")
-        
-        return classified
+            if not line:
+                continue
+                
+            # 检查当前行是否包含运营商标识
+            line_isp = extract_isp_from_key(line)
+            if line_isp:
+                current_isp = line_isp
+                
+            # 严格提取当前行的所有真实IP
+            ips = ip_pattern.findall(line)
+            for ip in ips:
+                # 优先使用当前行识别到的运营商，其次使用上文记忆的运营商
+                target_isp = line_isp if line_isp else current_isp
+                if target_isp:
+                    add_ip(ip, target_isp)
+                else:
+                    # 如果都没有识别到，可按需处理，这里默认归为移动
+                    add_ip(ip, 'mobile')
 
-# 新增：保存分类后的VPS789数据
+    # 对列表去重，保持原有顺序
+    for k in classified:
+        classified[k] = list(dict.fromkeys(classified[k]))
+        
+    return classified
+
 def save_classified_vps789(classified_data: dict):
     """保存分类后的VPS789数据到单独文件"""
     with open(OUT_SG_MOBILE, 'w', encoding='utf-8') as f:
         f.write('\n'.join(classified_data['mobile']))
-    
     with open(OUT_SG_TELECOM, 'w', encoding='utf-8') as f:
         f.write('\n'.join(classified_data['telecom']))
-    
     with open(OUT_SG_UNICOM, 'w', encoding='utf-8') as f:
         f.write('\n'.join(classified_data['unicom']))
-    
+        
     print(f"VPS789分类数据已保存：")
     print(f"  - SG移动: {len(classified_data['mobile'])}个IP → {OUT_SG_MOBILE}")
     print(f"  - SG电信: {len(classified_data['telecom'])}个IP → {OUT_SG_TELECOM}")
     print(f"  - SG联通: {len(classified_data['unicom'])}个IP → {OUT_SG_UNICOM}")
 
-# 合并四份处理后的文本
 def merge_all(yongbusi_txt, cfxyz_txt, sg_txt, vps789_classified):
     # 合并VPS789分类数据
     vps789_content = "\n".join([
@@ -166,21 +193,16 @@ def main():
         # 保存分类数据
         save_classified_vps789(vps789_classified)
         
-        # 保存原始处理数据（可选）
+        # 保存原始处理数据用于检查
         with open(OUT_VPS789, "w", encoding="utf-8") as f:
             json.dump(vps789_classified, f, ensure_ascii=False, indent=2)
         print(f"VPS789处理完成 → {OUT_VPS789}")
         
     except Exception as e:
         print(f"⚠️ VPS789接口处理失败: {e}")
-        print("将使用空数据继续处理...")
-        vps789_classified = {
-            'mobile': [],
-            'telecom': [],
-            'unicom': []
-        }
+        vps789_classified = {'mobile': [], 'telecom': [], 'unicom': []}
 
-    # 读取三份文件合并
+    # 读取文件合并
     with open(OUT_YONGBUSI, "r", encoding="utf-8") as f:
         yong_data = f.read()
     with open(OUT_CF, "r", encoding="utf-8") as f:
@@ -188,7 +210,6 @@ def main():
     with open(OUT_SG, "r", encoding="utf-8") as f:
         sg_data = f.read()
 
-    # 合并所有数据
     merge_all(yong_data, cf_data, sg_data, vps789_classified)
 
 if __name__ == "__main__":
