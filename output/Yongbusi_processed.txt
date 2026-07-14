@@ -1,3 +1,1 @@
 openai.com:443#SG-晚高峰好一些
-www.5h.com:443#SG-移动网速优化
-cdn.204910.best:443#SG-电信网速优化
