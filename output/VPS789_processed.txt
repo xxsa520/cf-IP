@@ -1,0 +1,10 @@
+{
+  "mobile": [
+    "CT:443#SG移动",
+    "CU:443#SG移动",
+    "CM:443#SG移动",
+    "AllAvg:443#SG移动"
+  ],
+  "telecom": [],
+  "unicom": []
+}
