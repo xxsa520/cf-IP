@@ -4,17 +4,19 @@ import json
 import re
 from pathlib import Path
 
-# 四个源链接
+# 五个源链接（新增JP.txt）
 URL_YONGBUSI = "https://raw.githubusercontent.com/xxsa520/cf-IP/refs/heads/main/yongbusi.txt"
 URL_CFXYZ = "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/Cfxyz.txt"
 URL_SG = "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/SG.txt"
 URL_VPS789 = "https://vps789.com/openApi/cfIpApi"
+URL_JP = "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/JP.txt"  # 新增
 
 OUT_DIR = Path("output")
 OUT_YONGBUSI = OUT_DIR / "Yongbusi_processed.txt"
 OUT_CF = OUT_DIR / "Cfxyz_processed.txt"
 OUT_SG = OUT_DIR / "SG_processed.txt"
 OUT_VPS789 = OUT_DIR / "VPS789_processed.txt"
+OUT_JP = OUT_DIR / "JP_processed.txt"  # 新增
 OUT_MERGE = OUT_DIR / "all_ip.txt"
 
 # 分类输出文件
@@ -35,6 +37,12 @@ def replace_all_speed_tag(content: str) -> str:
 
 def process_sg(content: str) -> str:
     content = content.replace("sg 【新加坡】 SG", "新加坡")
+    content = replace_all_speed_tag(content)
+    return content
+
+def process_jp(content: str) -> str:
+    """处理日本IP数据，将'jp 【日本】 JP'修改为'日本'"""
+    content = content.replace("jp 【日本】 JP", "日本")
     content = replace_all_speed_tag(content)
     return content
 
@@ -179,22 +187,23 @@ def save_classified_vps789(classified_data: dict):
     print(f"  - SG电信: {len(classified_data['telecom'])}个IP → {OUT_SG_TELECOM}")
     print(f"  - SG联通: {len(classified_data['unicom'])}个IP → {OUT_SG_UNICOM}")
 
-def merge_all(yongbusi_txt, cfxyz_txt, sg_txt, vps789_classified):
+def merge_all(yongbusi_txt, cfxyz_txt, sg_txt, vps789_classified, jp_txt):
+    """合并五个数据源（新增JP）"""
     vps789_content = "\n".join([
         "\n".join(vps789_classified['mobile']),
         "\n".join(vps789_classified['telecom']),
         "\n".join(vps789_classified['unicom'])
     ])
-    merge_content = f"{yongbusi_txt}\n\n{cfxyz_txt}\n\n{sg_txt}\n\n{vps789_content}"
+    merge_content = f"{yongbusi_txt}\n\n{cfxyz_txt}\n\n{sg_txt}\n\n{vps789_content}\n\n{jp_txt}"
     with open(OUT_MERGE, "w", encoding="utf-8") as f:
         f.write(merge_content)
-    print(f"四合一合并完成，输出文件：{OUT_MERGE}")
+    print(f"五合一合并完成，输出文件：{OUT_MERGE}")
 
 def main():
     OUT_DIR.mkdir(exist_ok=True)
 
     # 1. yongbusi.txt
-    print("1/4 正在下载处理 yongbusi.txt ...")
+    print("1/5 正在下载处理 yongbusi.txt ...")
     yongbusi_raw = download_raw(URL_YONGBUSI)
     yongbusi_proc = replace_all_speed_tag(yongbusi_raw)
     yongbusi_proc = clean_unwanted_lines(yongbusi_proc)
@@ -203,7 +212,7 @@ def main():
     print(f"yongbusi处理完成 → {OUT_YONGBUSI}")
 
     # 2. Cfxyz.txt
-    print("2/4 正在下载处理 Cfxyz.txt ...")
+    print("2/5 正在下载处理 Cfxyz.txt ...")
     cf_raw = download_raw(URL_CFXYZ)
     cf_proc = replace_all_speed_tag(cf_raw)
     cf_proc = clean_unwanted_lines(cf_proc)
@@ -212,7 +221,7 @@ def main():
     print(f"Cfxyz处理完成 → {OUT_CF}")
 
     # 3. SG.txt
-    print("3/4 正在下载处理 SG.txt ...")
+    print("3/5 正在下载处理 SG.txt ...")
     sg_raw = download_raw(URL_SG)
     sg_proc = process_sg(sg_raw)
     sg_proc = clean_unwanted_lines(sg_proc)
@@ -220,8 +229,17 @@ def main():
         f.write(sg_proc)
     print(f"SG处理完成 → {OUT_SG}")
 
-    # 4. VPS789 接口
-    print("4/4 正在下载处理 VPS789接口数据 ...")
+    # 4. JP.txt（新增）
+    print("4/5 正在下载处理 JP.txt ...")
+    jp_raw = download_raw(URL_JP)
+    jp_proc = process_jp(jp_raw)
+    jp_proc = clean_unwanted_lines(jp_proc)
+    with open(OUT_JP, "w", encoding="utf-8") as f:
+        f.write(jp_proc)
+    print(f"JP处理完成 → {OUT_JP}")
+
+    # 5. VPS789 接口
+    print("5/5 正在下载处理 VPS789接口数据 ...")
     try:
         vps789_raw = download_raw(URL_VPS789)
         vps789_classified = process_vps789(vps789_raw)
@@ -239,8 +257,9 @@ def main():
     with open(OUT_YONGBUSI, "r", encoding="utf-8") as f: yong_data = f.read()
     with open(OUT_CF, "r", encoding="utf-8") as f: cf_data = f.read()
     with open(OUT_SG, "r", encoding="utf-8") as f: sg_data = f.read()
+    with open(OUT_JP, "r", encoding="utf-8") as f: jp_data = f.read()
 
-    merge_all(yong_data, cf_data, sg_data, vps789_classified)
+    merge_all(yong_data, cf_data, sg_data, vps789_classified, jp_data)
 
 if __name__ == "__main__":
     main()
