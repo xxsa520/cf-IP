@@ -1,0 +1,30 @@
+name: Txt change generate CSV
+on:
+  push:
+    paths:
+      - 'output/all_ip.txt'  # 只有all_ip.txt发生提交变更才触发job
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate all_ip.csv from all_ip.txt
+        run: |
+          # 将txt每行IP转为csv，单列csv
+          awk '{print $0}' output/all_ip.txt > output/all_ip.csv
+
+      - name: Commit & push generated csv
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/all_ip.csv
+          # 只有文件有变化才提交
+          if git diff --staged --quiet; then
+            echo "csv no change, skip commit"
+          else
+            git commit -m "auto generate all_ip.csv from all_ip.txt"
+            git push
+          fi
