@@ -1,9 +1,9 @@
-openai.com:443#SG-晚高峰好一些
-tsmc.com:443#SG-晚高峰好一些2
-www.5h.com:443#SG-晚高峰好一些3
-cdn.204910.best:443#SG-晚高峰好一些4
-ikea.com:443#SG-晚高峰好一些5
-bhp.com:443#SG-晚高峰好一些6
+openai.com:8443#SG-晚高峰好一些
+tsmc.com:8443#SG-晚高峰好一些2
+www.5h.com:8443#SG-晚高峰好一些3
+cdn.204910.best:8443#SG-晚高峰好一些4
+ikea.com:8443#SG-晚高峰好一些5
+bhp.com:8443#SG-晚高峰好一些6
 
 
 172.64.229.208#新加坡78.51MB/s
