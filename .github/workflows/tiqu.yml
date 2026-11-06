@@ -7,7 +7,7 @@ on:
 permissions:
   contents: write          # 新版仓库默认只读，必须显式开启
 
-concurrency:               # 防止整点任务重叠互相覆盖
+concurrency:
   group: ip-text-process
   cancel-in-progress: false
 
@@ -20,23 +20,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 配置Python3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: 合并清洗IP文本
+        run: |
+          set -uo pipefail
+          mkdir -p output
 
-      - name: 安装依赖
-        run: pip install -r requirements.txt
+          # ============ 只改这一行：源文件位置 ============
+          # 方案A：多个分组文件
+          SOURCE_GLOB="source/*.txt"
+          # 方案B：单个文件，改成
+          # SOURCE_GLOB="ip.txt"
+          # ===============================================
 
-      - name: 执行IP处理脚本
-        run: python process_ip.py
+          if ! compgen -G "$SOURCE_GLOB" > /dev/null; then
+            echo "找不到源文件: $SOURCE_GLOB"
+            echo "当前目录:"; ls -la
+            exit 1
+          fi
+
+          # 一次遍历完成全部清洗
+          #   - sub(/\r$/,"")        去掉 Windows 回车
+          #   - gsub 首尾空白        去掉行首尾空格/tab
+          #   - 空行 next            跳过空行
+          #   - # 开头 next          跳过注释行
+          #   - seen[$0]++ next      全局去重（保持首次出现顺序）
+          awk '
+            {
+              sub(/\r$/, "")
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+              if ($0 == "") next
+              if ($0 ~ /^#/) next
+              if (seen[$0]++) next
+              print
+            }
+          ' $SOURCE_GLOB > output/all.txt
+
+          # 确保文件以换行结尾（awk 每行都带 \n，这里只做保险）
+          if [ -s output/all.txt ] && [ "$(tail -c1 output/all.txt | wc -l)" -eq 0 ]; then
+            echo >> output/all.txt
+          fi
+
+          echo "已生成 output/all.txt"
 
       - name: 校验输出无空行
         run: |
+          test -f output/all.txt || { echo "output/all.txt 不存在"; ls -la output/; exit 1; }
           echo "总行数: $(wc -l < output/all.txt)"
-          echo "空行数: $(grep -c '^$' output/all.txt || true)"
-          test "$(grep -c '^$' output/all.txt || true)" = "0" \
-            || { echo "输出存在空行"; exit 1; }
+          BLANK=$(grep -c '^$' output/all.txt || true)
+          echo "空行数: $BLANK"
+          test "$BLANK" = "0" || { echo "输出存在空行"; exit 1; }
 
       - name: 配置Git提交信息
         run: |
