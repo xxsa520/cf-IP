@@ -31,31 +31,24 @@ jobs:
       - name: 执行原IP处理脚本
         run: python process_ip.py
 
-      - name: 合并清洗（去空行/全角空格/零宽字符/去重）
+      - name: 清洗 all_ip.txt（每个IP一行，无空行，去重）
         run: |
           set -uo pipefail
-          mkdir -p output
-          shopt -s nullglob
+          TARGET="output/all_ip.txt"
 
-          src=()
-          for f in output/*.txt; do
-            [ "$f" = "output/all.txt" ] && continue
-            src+=("$f")
-          done
-
-          # output 下没有别的 txt → 回退到仓库根目录的源文件
-          if [ ${#src[@]} -eq 0 ]; then
-            for f in yongbusi.txt 世界级cf域名.txt; do
-              [ -f "$f" ] && src+=("$f")
-            done
+          if [ ! -f "$TARGET" ]; then
+            echo "找不到 $TARGET"
+            ls -la output/ || true
+            exit 1
           fi
 
-          if [ ${#src[@]} -eq 0 ]; then
-            echo "没有找到任何源文件"; ls -la; exit 1
-          fi
-          echo "合并源: ${src[*]}"
+          echo "===== 清洗前 ====="
+          echo "行数=$(wc -l < "$TARGET"), 空行=$(grep -c '^$' "$TARGET" || true)"
+          echo "--- 前 10 行（cat -A 显示不可见字符）---"
+          head -10 "$TARGET" | cat -A
 
-          # Perl 清洗：BOM + CR + 全角空格 + 零宽字符 + 首尾空白 + 空行 + 注释 + 去重
+          # 核心：按空白拆成 token，每个 token 输出一行
+          #   去 BOM、去 CR、去首尾空白、去空行、去注释行、全局去重
           perl -CSDA -Mutf8 -ne '
             s/^\x{FEFF}//;
             s/\r$//;
@@ -63,21 +56,35 @@ jobs:
             s/[\s\x{3000}\x{200B}\x{200C}\x{200D}\x{FEFF}]+$//;
             next if /^$/;
             next if /^#/;
-            next if $seen{$_}++;
-            print;
-          ' "${src[@]}" > output/all.txt.tmp
+            for my $tok (split /\s+/, $_) {
+              next if $tok eq "";
+              next if $seen{$tok}++;
+              print "$tok\n";
+            }
+          ' "$TARGET" > "$TARGET.tmp"
 
-          mv output/all.txt.tmp output/all.txt
+          mv "$TARGET.tmp" "$TARGET"
 
-          echo "总行数: $(wc -l < output/all.txt)"
-          echo "空行数: $(grep -c '^$' output/all.txt || true)"
+          echo "===== 清洗后 ====="
+          echo "行数=$(wc -l < "$TARGET"), 空行=$(grep -c '^$' "$TARGET" || true)"
+          echo "--- 前 10 行 ---"
+          head -10 "$TARGET" | cat -A
 
-      - name: 校验无空行
+      - name: 校验（每个IP一行 + 无空行）
         run: |
-          test -f output/all.txt || { echo "all.txt 不存在"; ls -la output; exit 1; }
-          B=$(grep -c '^$' output/all.txt || true)
+          TARGET="output/all_ip.txt"
+
+          # 1) 无空行
+          B=$(grep -c '^$' "$TARGET" || true)
           echo "空行数: $B"
-          test "$B" = "0" || { echo "仍有空行"; head -30 output/all.txt | cat -A; exit 1; }
+          test "$B" = "0" || { echo "❌ 存在空行"; exit 1; }
+
+          # 2) 每行只有一个 token（没有空格分隔的多个IP）
+          MULTI=$(awk 'NF>1' "$TARGET" | wc -l)
+          echo "含多个 token 的行数: $MULTI"
+          test "$MULTI" = "0" || { echo "❌ 有行包含空格分隔的多个IP"; awk 'NF>1' "$TARGET" | head; exit 1; }
+
+          echo "✅ 每个IP独占一行，无空行"
 
       - name: 配置Git提交信息
         run: |
